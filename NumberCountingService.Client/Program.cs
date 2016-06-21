@@ -1,13 +1,10 @@
-﻿using Microsoft.ServiceFabric.Services;
-using Microsoft.ServiceFabric.Services.Wcf;
-using System;
-using System.Collections.Generic;
+﻿using System;
 using System.Fabric;
-using System.Linq;
 using System.ServiceModel;
-using System.Text;
 using System.Threading.Tasks;
 using System.Timers;
+using Microsoft.ServiceFabric.Services.Client;
+using Microsoft.ServiceFabric.Services.Communication.Wcf.Client;
 
 namespace NumberCountingService.Client
 {
@@ -59,7 +56,7 @@ namespace NumberCountingService.Client
             NetTcpBinding binding = CreateClientConnectionBinding();
 
             return new NumCountingSvcClient(
-                new WcfCommunicationClientFactory<INumberCounter>(serviceResolver, binding, null, null),
+                new WcfCommunicationClientFactory<INumberCounter>(binding, null, serviceResolver),
                 ServiceName);
         }
 

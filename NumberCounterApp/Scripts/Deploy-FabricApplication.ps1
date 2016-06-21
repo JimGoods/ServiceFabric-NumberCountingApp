@@ -14,11 +14,35 @@ Path to the file containing the publish profile.
 .PARAMETER ApplicationPackagePath
 Path to the folder of the packaged Service Fabric application.
 
-.PARAMETER DoNotCreateApplication
-Indicates that the Service Fabric application should not be created after registering the application type.
+.PARAMETER DeloyOnly
+Indicates that the Service Fabric application should not be created or upgraded after registering the application type.
 
 .PARAMETER ApplicationParameter
 Hashtable of the Service Fabric application parameters to be used for the application.
+
+.PARAMETER UnregisterUnusedApplicationVersionsAfterUpgrade
+Indicates whether to unregister any unused application versions that exist after an upgrade is finished.
+
+.PARAMETER OverrideUpgradeBehavior
+Indicates the behavior used to override the upgrade settings specified by the publish profile.
+'None' indicates that the upgrade settings will not be overriden.
+'ForceUpgrade' indicates that an upgrade will occur with default settings, regardless of what is specified in the publish profile.
+'VetoUpgrade' indicates that an upgrade will not occur, regardless of what is specified in the publish profile.
+
+.PARAMETER UseExistingClusterConnection
+Indicates that the script should make use of an existing cluster connection that has already been established in the PowerShell session.  The cluster connection parameters configured in the publish profile are ignored.
+
+.PARAMETER OverwriteBehavior
+Overwrite Behavior if an application exists in the cluster with the same name. Available Options are Never, Always, SameAppTypeAndVersion. This setting is not applicable when upgrading an application.
+'Never' will not remove the existing application. This is the default behavior.
+'Always' will remove the existing application even if its Application type and Version is different from the application being created. 
+'SameAppTypeAndVersion' will remove the existing application only if its Application type and Version is same as the application being created.
+
+.PARAMETER SkipPackageValidation
+Switch signaling whether the package should be validated or not before deployment.
+
+.PARAMETER SecurityToken
+A security token for authentication to cluster management endpoints. Used for silent authentication to clusters that are protected by Azure Active Directory.
 
 .EXAMPLE
 . Scripts\Deploy-FabricApplication.ps1 -ApplicationPackagePath 'pkg\Debug'
@@ -45,16 +69,87 @@ Param
     $ApplicationPackagePath,
 
     [Switch]
-    $DoNotCreateApplication,
+    $DeployOnly,
 
     [Hashtable]
-    $ApplicationParameter
+    $ApplicationParameter,
+
+    [Boolean]
+    $UnregisterUnusedApplicationVersionsAfterUpgrade,
+
+    [String]
+    [ValidateSet('None', 'ForceUpgrade', 'VetoUpgrade')]
+    $OverrideUpgradeBehavior = 'None',
+
+    [Switch]
+    $UseExistingClusterConnection,
+
+    [String]
+    [ValidateSet('Never','Always','SameAppTypeAndVersion')]
+    $OverwriteBehavior = 'Never',
+
+    [Switch]
+    $SkipPackageValidation,
+
+    [String]
+    $SecurityToken 
 )
 
-$LocalFolder = (Split-Path $MyInvocation.MyCommand.Path)
+function Read-XmlElementAsHashtable
+{
+    Param (
+        [System.Xml.XmlElement]
+        $Element
+    )
 
-$UtilitiesModulePath = "$LocalFolder\Utilities.psm1"
-Import-Module $UtilitiesModulePath
+    $hashtable = @{}
+    if ($Element.Attributes)
+    {
+        $Element.Attributes | 
+            ForEach-Object {
+                $boolVal = $null
+                if ([bool]::TryParse($_.Value, [ref]$boolVal)) {
+                    $hashtable[$_.Name] = $boolVal
+                }
+                else {
+                    $hashtable[$_.Name] = $_.Value
+                }
+            }
+    }
+
+    return $hashtable
+}
+
+function Read-PublishProfile
+{
+    Param (
+        [ValidateScript({Test-Path $_ -PathType Leaf})]
+        [String]
+        $PublishProfileFile
+    )
+
+    $publishProfileXml = [Xml] (Get-Content $PublishProfileFile)
+    $publishProfile = @{}
+
+    $publishProfile.ClusterConnectionParameters = Read-XmlElementAsHashtable $publishProfileXml.PublishProfile.Item("ClusterConnectionParameters")
+    $publishProfile.UpgradeDeployment = Read-XmlElementAsHashtable $publishProfileXml.PublishProfile.Item("UpgradeDeployment")
+
+    if ($publishProfileXml.PublishProfile.Item("UpgradeDeployment"))
+    {
+        $publishProfile.UpgradeDeployment.Parameters = Read-XmlElementAsHashtable $publishProfileXml.PublishProfile.Item("UpgradeDeployment").Item("Parameters")
+        if ($publishProfile.UpgradeDeployment["Mode"])
+        {
+            $publishProfile.UpgradeDeployment.Parameters[$publishProfile.UpgradeDeployment["Mode"]] = $true
+        }
+    }
+
+    $publishProfileFolder = (Split-Path $PublishProfileFile)
+    $publishProfile.ApplicationParameterFile = [System.IO.Path]::Combine($PublishProfileFolder, $publishProfileXml.PublishProfile.ApplicationParameterFile.Path)
+
+    return $publishProfile
+}
+
+$LocalFolder = (Split-Path $MyInvocation.MyCommand.Path)
 
 if (!$PublishProfileFile)
 {
@@ -67,79 +162,59 @@ if (!$ApplicationPackagePath)
 }
 
 $ApplicationPackagePath = Resolve-Path $ApplicationPackagePath
-$ApplicationManifestPath = "$ApplicationPackagePath\ApplicationManifest.xml"
 
-if (!(Test-Path $ApplicationManifestPath))
+$publishProfile = Read-PublishProfile $PublishProfileFile
+
+if (-not $UseExistingClusterConnection)
 {
-    throw "$ApplicationManifestPath is not found. You may need to create a package by running the 'Package' command in Visual Studio for the desired build configuration (Debug or Release)."
+    $ClusterConnectionParameters = $publishProfile.ClusterConnectionParameters
+    if ($SecurityToken)
+    {
+        $ClusterConnectionParameters["SecurityToken"] = $SecurityToken
+    }
+
+    try
+    {
+        [void](Connect-ServiceFabricCluster @ClusterConnectionParameters)
+    }
+    catch [System.Fabric.FabricObjectClosedException]
+    {
+        Write-Warning "Service Fabric cluster may not be connected."
+        throw
+    }
 }
 
-$packageValidationSuccess = (Test-ServiceFabricApplicationPackage $ApplicationPackagePath)
-if (!$packageValidationSuccess)
+$RegKey = "HKLM:\SOFTWARE\Microsoft\Service Fabric SDK"
+$ModuleFolderPath = (Get-ItemProperty -Path $RegKey -Name FabricSDKPSModulePath).FabricSDKPSModulePath
+Import-Module "$ModuleFolderPath\ServiceFabricSDK.psm1"
+
+$IsUpgrade = ($publishProfile.UpgradeDeployment -and $publishProfile.UpgradeDeployment.Enabled -and $OverrideUpgradeBehavior -ne 'VetoUpgrade') -or $OverrideUpgradeBehavior -eq 'ForceUpgrade'
+
+if ($IsUpgrade)
 {
-    throw "Validation failed for package: $ApplicationPackagePath"
+    $Action = "RegisterAndUpgrade"
+    if ($DeployOnly)
+    {
+        $Action = "Register"
+    }
+    
+    $UpgradeParameters = $publishProfile.UpgradeDeployment.Parameters
+
+    if ($OverrideUpgradeBehavior -eq 'ForceUpgrade')
+    {
+        # Warning: Do not alter these upgrade parameters. It will create an inconsistency with Visual Studio's behavior.
+        $UpgradeParameters = @{ UnmonitoredAuto = $true; Force = $true }
+    }
+
+    Publish-UpgradedServiceFabricApplication -ApplicationPackagePath $ApplicationPackagePath -ApplicationParameterFilePath $publishProfile.ApplicationParameterFile -Action $Action -UpgradeParameters $UpgradeParameters -ApplicationParameter $ApplicationParameter -UnregisterUnusedVersions:$UnregisterUnusedApplicationVersionsAfterUpgrade -ErrorAction Stop
 }
-
-Write-Host 'Deploying application...'
-
-$PublishProfile = Read-PublishProfile $PublishProfileFile
-$ClusterConnectionParameters = $PublishProfile.ClusterConnectionParameters
-
-try
+else
 {
-    Write-Host 'Connecting to the cluster...'
-    [void](Connect-ServiceFabricCluster @ClusterConnectionParameters)
-}
-catch [System.Fabric.FabricObjectClosedException]
-{
-    Write-Warning "Service Fabric cluster may not be connected."
-    throw
-}
-
-# Get image store connection string
-$clusterManifestText = Get-ServiceFabricClusterManifest
-$imageStoreConnectionString = Get-ImageStoreConnectionString ([xml] $clusterManifestText)
-
-$names = Get-Names -ApplicationManifestPath $ApplicationManifestPath -PublishProfile $PublishProfile
-if (!$names)
-{
-    return
-}
-
-$tmpPackagePath = Copy-Temp $ApplicationPackagePath $names.ApplicationTypeName
-$applicationPackagePathInImageStore = $names.ApplicationTypeName
-
-$app = Get-ServiceFabricApplication -ApplicationName $names.ApplicationName
-if ($app)
-{
-    Write-Host 'Removing application instance...'
-    $app | Remove-ServiceFabricApplication -Force
-}
-
-foreach ($node in Get-ServiceFabricNode)
-{
-    [void](Get-ServiceFabricDeployedReplica -NodeName $node.NodeName -ApplicationName $names.ApplicationName | Remove-ServiceFabricReplica -NodeName $node.NodeName -ForceRemove)
-}
-
-$reg = Get-ServiceFabricApplicationType -ApplicationTypeName $names.ApplicationTypeName
-if ($reg)
-{
-    Write-Host 'Unregistering application type...'
-    $reg | Unregister-ServiceFabricApplicationType -Force
-}
-
-Write-Host 'Copying application package...'
-Copy-ServiceFabricApplicationPackage -ApplicationPackagePath $tmpPackagePath -ImageStoreConnectionString $imageStoreConnectionString -ApplicationPackagePathInImageStore $applicationPackagePathInImageStore
-
-Write-Host 'Registering application type...'
-Register-ServiceFabricApplicationType -ApplicationPathInImageStore $applicationPackagePathInImageStore
-
-Write-Host 'Removing application package...'
-Remove-ServiceFabricApplicationPackage -ApplicationPackagePathInImageStore $applicationPackagePathInImageStore -ImageStoreConnectionString $imageStoreConnectionString
-
-if (!$DoNotCreateApplication)
-{
-    Write-Host 'Creating application...'
-    [void](New-ServiceFabricApplication -ApplicationName $names.ApplicationName -ApplicationTypeName $names.ApplicationTypeName -ApplicationTypeVersion $names.ApplicationTypeVersion -ApplicationParameter $ApplicationParameter)
-    Write-Host 'Create application succeeded'
+    $Action = "RegisterAndCreate"
+    if ($DeployOnly)
+    {
+        $Action = "Register"
+    }
+    
+    Publish-NewServiceFabricApplication -ApplicationPackagePath $ApplicationPackagePath -ApplicationParameterFilePath $publishProfile.ApplicationParameterFile -Action $Action -ApplicationParameter $ApplicationParameter -OverwriteBehavior $OverwriteBehavior -SkipPackageValidation:$SkipPackageValidation -ErrorAction Stop
 }

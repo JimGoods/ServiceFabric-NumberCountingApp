@@ -2,31 +2,40 @@
 using System.Diagnostics;
 using System.Fabric;
 using System.Threading;
+using Microsoft.ServiceFabric.Services.Runtime;
 
 namespace NumberCountingService
 {
     public class Host
     {
-        public static void Main(string[] args)
+        internal static class Program
         {
-            try
+            /// <summary>
+            /// This is the entry point of the service host process.
+            /// </summary>
+            private static void Main()
             {
-                using (FabricRuntime fabricRuntime = FabricRuntime.Create())
+                try
                 {
-                    // This is the name of the ServiceType that is registered with FabricRuntime. 
-                    // This name must match the name defined in the ServiceManifest. If you change
-                    // this name, please change the name of the ServiceType in the ServiceManifest.
-                    fabricRuntime.RegisterServiceType("NumberCountingServiceType", typeof(NumberCountingService));
+                    // The ServiceManifest.XML file defines one or more service type names.
+                    // Registering a service maps a service type name to a .NET type.
+                    // When Service Fabric creates an instance of this service type,
+                    // an instance of the class is created in this host process.
 
-                    ServiceEventSource.Current.ServiceTypeRegistered(Process.GetCurrentProcess().Id, typeof(NumberCountingService).Name);
+                    ServiceRuntime.RegisterServiceAsync("NumberCountingServiceType",
+                        context => new NumberCountingService(context)).GetAwaiter().GetResult();
 
+                    ServiceEventSource.Current.ServiceTypeRegistered(Process.GetCurrentProcess().Id,
+                        typeof(NumberCountingService).Name);
+
+                    // Prevents this host process from terminating so services keep running.
                     Thread.Sleep(Timeout.Infinite);
                 }
-            }
-            catch (Exception e)
-            {
-                ServiceEventSource.Current.ServiceHostInitializationFailed(e);
-                throw;
+                catch (Exception e)
+                {
+                    ServiceEventSource.Current.ServiceHostInitializationFailed(e);
+                    throw;
+                }
             }
         }
     }

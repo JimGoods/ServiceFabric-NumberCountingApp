@@ -1,7 +1,7 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio 14
-VisualStudioVersion = 14.0.23107.0
+VisualStudioVersion = 14.0.25123.0
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{A07B5EB6-E848-4116-A8D0-A826331D98C6}") = "NumberCounterApp", "NumberCounterApp\NumberCounterApp.sfproj", "{41AA1360-6FCB-4AB4-B258-CF52E093D5A0}"
 EndProject
@@ -18,6 +18,8 @@ Global
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
 		{41AA1360-6FCB-4AB4-B258-CF52E093D5A0}.Debug|Any CPU.ActiveCfg = Debug|x64
+		{41AA1360-6FCB-4AB4-B258-CF52E093D5A0}.Debug|Any CPU.Build.0 = Debug|x64
+		{41AA1360-6FCB-4AB4-B258-CF52E093D5A0}.Debug|Any CPU.Deploy.0 = Debug|x64
 		{41AA1360-6FCB-4AB4-B258-CF52E093D5A0}.Debug|x64.ActiveCfg = Debug|x64
 		{41AA1360-6FCB-4AB4-B258-CF52E093D5A0}.Debug|x64.Build.0 = Debug|x64
 		{41AA1360-6FCB-4AB4-B258-CF52E093D5A0}.Debug|x64.Deploy.0 = Debug|x64
@@ -26,6 +28,7 @@ Global
 		{41AA1360-6FCB-4AB4-B258-CF52E093D5A0}.Release|x64.Build.0 = Release|x64
 		{41AA1360-6FCB-4AB4-B258-CF52E093D5A0}.Release|x64.Deploy.0 = Release|x64
 		{309BA2F5-0F53-4560-BB2F-D6AB025E435A}.Debug|Any CPU.ActiveCfg = Debug|x64
+		{309BA2F5-0F53-4560-BB2F-D6AB025E435A}.Debug|Any CPU.Build.0 = Debug|x64
 		{309BA2F5-0F53-4560-BB2F-D6AB025E435A}.Debug|x64.ActiveCfg = Debug|x64
 		{309BA2F5-0F53-4560-BB2F-D6AB025E435A}.Debug|x64.Build.0 = Debug|x64
 		{309BA2F5-0F53-4560-BB2F-D6AB025E435A}.Release|Any CPU.ActiveCfg = Release|x64
@@ -42,20 +45,5 @@ Global
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
-	EndGlobalSection
-	GlobalSection(TeamFoundationVersionControl) = preSolution
-		SccNumberOfProjects = 4
-		SccEnterpriseProvider = {4CA58AB2-18FA-4F8D-95D4-32DDF27D184C}
-		SccTeamFoundationServer = https://manoj-cts.visualstudio.com/defaultcollection
-		SccLocalPath0 = .
-		SccProjectUniqueName1 = NumberCounterApp\\NumberCounterApp.sfproj
-		SccProjectName1 = NumberCounterApp
-		SccLocalPath1 = NumberCounterApp
-		SccProjectUniqueName2 = NumberCountingService.Client\\NumberCountingService.Client.csproj
-		SccProjectName2 = NumberCountingService.Client
-		SccLocalPath2 = NumberCountingService.Client
-		SccProjectUniqueName3 = NumberCountingService\\NumberCountingService.csproj
-		SccProjectName3 = NumberCountingService
-		SccLocalPath3 = NumberCountingService
 	EndGlobalSection
 EndGlobal

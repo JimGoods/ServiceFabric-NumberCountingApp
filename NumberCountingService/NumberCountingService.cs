@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Fabric;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -8,35 +9,40 @@ using Microsoft.ServiceFabric.Data.Collections;
 using Microsoft.ServiceFabric.Services;
 using Microsoft.ServiceFabric.Services.Wcf;
 using System.ServiceModel;
+using Microsoft.ServiceFabric.Services.Communication.Runtime;
+using Microsoft.ServiceFabric.Services.Communication.Wcf;
+using Microsoft.ServiceFabric.Services.Communication.Wcf.Runtime;
+using Microsoft.ServiceFabric.Services.Runtime;
 
 namespace NumberCountingService
 {
     public class NumberCountingService : StatefulService, INumberCounter
     {
-        protected override ICommunicationListener CreateCommunicationListener()
-        {
-            try
-            {
-                return new WcfCommunicationListener(typeof(INumberCounter), this)
-                {
-                    //
-                    // The name of the endpoint configured in the ServiceManifest under the Endpoints section
-                    // which identifies the endpoint that the wcf servicehost should listen on.
-                    //
-                    EndpointResourceName = "ServiceEndpoint",
+        public NumberCountingService(StatefulServiceContext context)
+            : base(context)
+        { }
 
-                    // 
-                    // Populate the binding information that you want the service to use.
-                    //
-                    Binding = CreateListenBinding()
-                };
-            }
-            catch (Exception ex)
+        protected override IEnumerable<ServiceReplicaListener> CreateServiceReplicaListeners()
+        {
+            return new[]
             {
-                ServiceEventSource.Current.LogServiceError(ex);
-                throw;
-            }
-            
+                new ServiceReplicaListener((context) =>
+                    new WcfCommunicationListener<INumberCounter>(
+                        wcfServiceObject: this,
+                        serviceContext: context,
+                        //
+                        // The name of the endpoint configured in the ServiceManifest under the Endpoints section
+                        // that identifies the endpoint that the WCF ServiceHost should listen on.
+                        //
+                        endpointResourceName: "ServiceEndpoint",
+
+                        //
+                        // Populate the binding information that you want the service to use.
+                        //
+                        listenerBinding: CreateListenBinding()
+                        )
+                    )
+            };
         }
 
         protected override async Task RunAsync(CancellationToken cancellationToken)
@@ -50,10 +56,10 @@ namespace NumberCountingService
                     using (var tx = this.StateManager.CreateTransaction())
                     {
                         var result = await numbersDic.TryGetValueAsync(tx, "Counter-1");
-                        ServiceEventSource.Current.ServiceMessage(
-                            this,
-                            "Current Counter Value: {0}",
-                            result.HasValue ? result.Value.ToString() : "Value does not exist.");
+                        //ServiceEventSource.Current.ServiceMessage(
+                        //    this,
+                        //    "Current Counter Value: {0}",
+                        //    result.HasValue ? result.Value.ToString() : "Value does not exist.");
 
                         await numbersDic.AddOrUpdateAsync(tx, "Counter-1", 0, (k, v) => ++v);
 
